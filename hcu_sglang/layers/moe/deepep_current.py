@@ -130,6 +130,35 @@ _DEEPEP_LL_DISPATCH_USES_QUANT_TYPE = (
 )
 
 
+def _hcu_w4a8_ll_dispatch_api():
+    if not (_is_hcu and use_deepep):
+        return None
+    function = Buffer.low_latency_dispatch
+    if not inspect.isfunction(function):
+        return None
+    if function.__module__ == "hcu_adapter.bridges.sglang":
+        if function.__name__ != "_ll_dispatch_v0521" or function.__closure__ is None:
+            return None
+        cells = dict(zip(function.__code__.co_freevars,
+                         (cell.cell_contents for cell in function.__closure__)))
+        function = cells.get("_ll_orig")
+    if not inspect.isfunction(function):
+        return None
+    if function.__module__ != "deep_ep.buffer" or function.__qualname__ != "Buffer.low_latency_dispatch":
+        return None
+    if function.__globals__.get("Buffer") is not Buffer:
+        return None
+    if inspect.getsourcefile(function) != inspect.getsourcefile(Buffer):
+        return None
+    parameters = inspect.signature(function).parameters
+    if not {"self", "x", "topk_idx", "topk_weight", "quant_type"}.issubset(parameters):
+        return None
+    return function
+
+
+_HCU_W4A8_LL_DISPATCH = _hcu_w4a8_ll_dispatch_api()
+
+
 def _low_latency_dispatch_compat(
     buffer,
     hidden_states: torch.Tensor,
@@ -1267,7 +1296,24 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
         buffer = self._get_buffer()
         _deepep_precompile_tp_barrier()
         npu_mxfp_quantization_opts = self._get_npu_mxfp_quantization_kwargs(buffer)
-        if (
+        if _is_hcu and self.quant_config.get("hcu_w4a8_int8_dispatch", False):
+            if _HCU_W4A8_LL_DISPATCH is None:
+                raise RuntimeError("HCU W4A8 requires the verified native DeepEP INT8 dispatch ABI")
+            packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
+                _HCU_W4A8_LL_DISPATCH(
+                    buffer,
+                    hidden_states,
+                    topk_ids,
+                    topk_weights,
+                    self.num_max_dispatch_tokens_per_rank,
+                    self.num_experts,
+                    quant_type=1,
+                    fp8_round_scale=False,
+                    async_finish=not self.return_recv_hook,
+                    return_recv_hook=self.return_recv_hook,
+                )
+            )
+        elif (
             use_groupgemm
             and _DEEPEP_LL_DISPATCH_USES_QUANT_TYPE
             and (
@@ -1276,21 +1322,7 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 or self.quant_config.get("hcu_legacy_groupgemm", False)
             )
         ):
-            if _is_hcu and self.quant_config.get("hcu_w4a8_int8_dispatch", False):
-                packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
-                    buffer.low_latency_dispatch(
-                        hidden_states,
-                        topk_ids,
-                        topk_weights,
-                        self.num_max_dispatch_tokens_per_rank,
-                        self.num_experts,
-                        quant_type=1,
-                        fp8_round_scale=False,
-                        async_finish=not self.return_recv_hook,
-                        return_recv_hook=self.return_recv_hook,
-                    )
-                )
-            elif _use_fp8_w8a8_moe and not preserve_input_dtype:
+            if _use_fp8_w8a8_moe and not preserve_input_dtype:
                 packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
                     buffer.low_latency_dispatch(
                         hidden_states,

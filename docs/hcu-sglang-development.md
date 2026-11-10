@@ -1962,3 +1962,33 @@ main 整理已同步正在评测的三个 KV 修复，并移除未部署的 raw 
 原测试对当场生成的 pickle payload 做 round-trip，触发 HYGON pickle 反序列化扫描告警。当前使用受约束的 Pickler 写入真实 MultimodalInputs，再通过 pickletools 静态检查字段；reducer_override 拒绝缓存 tensor 进入序列化，并直接序列化该 tensor 验证拒绝分支确实生效。覆盖默认和最高协议，保留缓存隔离断言，消除反序列化调用。
 
 同时按现有仓库模板为本次两个新增 Python 文件补齐 HYGON/Apache-2.0 文件头，对应新增源码归属复核告警。运行时逻辑保持原样；14 项针对性回归通过，文件头补齐前后可执行 AST 一致；L0、导览生成/快照检查及 diff 检查通过。
+
+
+## 2026-11-10 DeepSeek V4.1 W4A8 validated implementation integration
+
+Scope: merge the validated SGLang 0.5.22 adapter/plugin implementation into the
+current development branches, preserving newer features and existing licensing.
+The adapter receives the JIT reduction receiver, registry target-label, partial
+RoPE and mHC provider corrections. Model-specific boundary, Engram HSA host
+storage, W4A8 DeepEP/HIPC, loader, padding and DSPARK top-p changes remain in
+the plugin. The current adapter-owned immutable JIT input pipeline is retained.
+
+Historical evidence: adapter wheel SHA256
+`3eae23472c52241921ba8736dd3ec617509cfdfa2ba043bad6cba83006c495f4`,
+plugin wheel SHA256
+`8470fed05030489cca7436c4152dbe57e9c6bd100e8a3bf507f09aa2a7e933e9`.
+The selected 2902 accuracy samples had zero execution errors and per-dataset
+relative score loss <=5%: HumanEval 157/164, GSM8K 2561/2638 versus DAS 2569,
+MathVista 83/100. HumanEval/GSM8K used the unchanged W5 greedy path; MathVista
+used W6. Representative performance covered 10 cases per side, 400 successful
+requests per side, and eight raw profiler rank traces per side. The candidate
+was slower; performance parity was not an acceptance requirement. Both deployed
+stacks disabled radix cache; the shared-prefix construction was not a measured
+90% cache hit rate. The long-context full matrix remains deferred.
+
+Evidence location: `<artifact-root>/delivery-representative01/` and
+`<artifact-root>/performance-representative-report01/`. The source integration
+record and CPU test logs live under `<artifact-root>/source-landing-20261110-01/`.
+These historical results qualify the sealed artifacts, not a new hardware run
+of the newer merged branch. This source integration does not rerun model loading,
+accuracy, distributed GPU/Graph tests or performance, and creates no commit.

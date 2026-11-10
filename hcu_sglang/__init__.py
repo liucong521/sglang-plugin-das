@@ -165,6 +165,10 @@ def register() -> None:
         from hcu_sglang.layers.moe import deepep_current, deepep_fp8
         deepep_current.register_hooks()
         deepep_fp8.register_hooks()
+        from hcu_sglang.layers.moe import deepep_wna16
+        deepep_wna16.register_hooks()
+        from hcu_sglang.layers.moe import deepep_w4a8
+        deepep_w4a8.register_hooks()
     aiter_w4a8.register_hooks()
     lightop_runner.register_hooks()
     mega_moe.register_hooks()
@@ -176,6 +180,10 @@ def register() -> None:
     norm_activation.register_hooks()
     linear_fusion.register_hooks()
     layer_boundary.register_hooks()
+    from hcu_sglang.layers import engram_host
+    engram_host.register_hooks()
+    from hcu_sglang.layers import engram_hsa
+    engram_hsa.register_hooks()
     rotary.register_hooks()
     mem_cache_allocation.register_hooks()
     kv_cache_dtype.register_hooks()

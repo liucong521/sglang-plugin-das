@@ -886,9 +886,9 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 moe_routed_quant_stream=self.moe_routed_quant_stream,
             ),
             prefix=add_prefix("layers", prefix),
-            final_read=hc_boundary.FinalRead() if _is_cuda else None,
+            final_read=hc_boundary.FinalRead() if (_is_cuda and not _is_hcu) else None,
             stage_facts=functools.partial(hc_boundary.stages, config)
-            if _is_cuda
+            if (_is_cuda and not _is_hcu)
             else None,
         )
         if self.pp_group.is_last_rank:
@@ -920,7 +920,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 ),
             )
 
-        if not _is_cuda:
+        if not (_is_cuda and not _is_hcu):
             self.use_fused_mhc_post_pre = (
                 is_cross_layer_mhc_fusion_enabled()
                 or _is_fused_mhc_post_pre_enabled_xpu()
@@ -1141,11 +1141,11 @@ class DeepseekV4Model(NativeDeepseekV4Model):
         # mHC assumes full token rows per rank; LayerNorm SP needs its own path.
         assert not get_forward().sp_active
         state = mhc.HcState(hidden_states)
-        if _is_cuda:
+        if (_is_cuda and not _is_hcu):
             residual_batch.start(forward_batch)
             hidden_states = residual_batch.set_written(state, forward_batch)
         for i in range(self.start_layer, end_layer):
-            if _is_cuda:
+            if (_is_cuda and not _is_hcu):
                 layer = self.layers[i]
                 if (
                     (tail is not None and i == self.late_layer_start)
@@ -1183,7 +1183,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 else:
                     saved_full = attn_backend.enter_late_layer_tail(forward_batch)
                 state = state.take_rows(tail.rows)
-                if _is_cuda:
+                if (_is_cuda and not _is_hcu):
                     hidden_states = residual_batch.set_written(state, forward_batch)
                 input_ids = tail.rows(input_ids)
                 if not (
@@ -1234,7 +1234,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                         hidden_states,
                     )
                 state = state.with_residual(hidden_states)
-                if _is_cuda:
+                if (_is_cuda and not _is_hcu):
                     hidden_states = residual_batch.set_written(state, forward_batch)
             if capture_dspark and i in dspark_layers_to_capture:
                 # The draft head reads the attention input of its target layers.
@@ -1248,7 +1248,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 else get_global_expert_distribution_recorder().with_current_layer(i)
             )
             with ctx:
-                if _is_cuda:
+                if (_is_cuda and not _is_hcu):
                     hidden_states = self.layers[i](
                         positions=positions,
                         hidden_states=hidden_states,
@@ -1276,7 +1276,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                         forward_batch=forward_batch,
                         input_ids_global=input_ids_global,
                     )
-        if _is_cuda:
+        if (_is_cuda and not _is_hcu):
             state = residual_batch.read_output(
                 hidden_states, forward_batch, hc_boundary.FinalRead(), None
             )
@@ -1416,7 +1416,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 outputs_arr[0], outputs_arr[1], "hidden_states", hidden_states.shape[0]
             )
         finally:
-            if _is_cuda:
+            if (_is_cuda and not _is_hcu):
                 for child in forward_batch.tbo_children:
                     residual_batch.clear(child)
 
@@ -1429,7 +1429,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
         input_embeds: Optional[torch.Tensor],
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ) -> Union[torch.Tensor, PPProxyTensors]:
-        if not _is_cuda:
+        if not (_is_cuda and not _is_hcu):
             return self._forward_impl(
                 input_ids, positions, forward_batch, input_embeds, pp_proxy_tensors
             )
@@ -1618,9 +1618,9 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                 forward_batch=forward_batch,
             )
         else:
-            if _is_cuda:
+            if (_is_cuda and not _is_hcu):
                 residual_batch.start(forward_batch)
-            use_fused = not _is_cuda and self.use_fused_mhc_post_pre
+            use_fused = not (_is_cuda and not _is_hcu) and self.use_fused_mhc_post_pre
             prev_residual, prev_post, prev_comb = None, None, None
             last_layer = None
             for i in range(self.start_layer, self.end_layer):
@@ -1632,7 +1632,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                     else get_global_expert_distribution_recorder().with_current_layer(i)
                 )
                 with ctx:
-                    if _is_cuda:
+                    if (_is_cuda and not _is_hcu):
                         hidden_states = layer(
                             positions=positions,
                             hidden_states=hidden_states,
@@ -1652,7 +1652,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                             prev_comb=prev_comb,
                         )
                 if capture_dspark and i in dspark_layers_to_capture:
-                    if _is_cuda:
+                    if (_is_cuda and not _is_hcu):
                         completed = hc_boundary.materialize(
                             hidden_states, forward_batch, consume=False
                         )
@@ -1665,7 +1665,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
                     captured_hidden = completed.mean(dim=1)
                     pd_aux_hidden_states.append(captured_hidden)
                     local_dspark_aux_hidden_states.append(captured_hidden)
-            if _is_cuda:
+            if (_is_cuda and not _is_hcu):
                 hidden_states = residual_batch.read_output(
                     hidden_states, forward_batch, hc_boundary.FinalRead(), None
                 )

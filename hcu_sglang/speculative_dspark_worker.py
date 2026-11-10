@@ -368,7 +368,7 @@ class _ModelMethods:
         )
         with (
             layer_stack(final_read=hc_boundary.FinalRead())
-            if _is_cuda
+            if (_is_cuda and not _is_hcu)
             else nullcontext()
         ):
             self.stages = nn.ModuleList(
@@ -588,7 +588,7 @@ class _ModelMethods:
         get_embedding: bool = False,
         pp_proxy_tensors=None,
     ) -> LogitsProcessorOutput:
-        if not _is_cuda:
+        if not (_is_cuda and not _is_hcu):
             return self._forward_impl(input_ids, positions, forward_batch, input_embeds)
         try:
             return self._forward_impl(input_ids, positions, forward_batch, input_embeds)
@@ -600,16 +600,16 @@ class _ModelMethods:
             input_embeds = self.forward_embed(input_ids)
         x = input_embeds
         pre = None
-        if _is_cuda:
+        if (_is_cuda and not _is_hcu):
             residual_batch.start(forward_batch)
         # Draft stages do not have recorder layer indices.
         with get_global_expert_distribution_recorder().disable_this_region():
             for stage in self.stages:
-                if _is_cuda:
+                if (_is_cuda and not _is_hcu):
                     x = stage(positions, x, forward_batch)
                 else:
                     x, pre = stage(positions, x, forward_batch, pre)
-        if _is_cuda:
+        if (_is_cuda and not _is_hcu):
             x = residual_batch.read_output(
                 x, forward_batch, hc_boundary.FinalRead(), None
             )
@@ -2093,10 +2093,9 @@ class _WorkerMethods:
                     coordination_plan.apply(
                         batch, "target", rank, local_only=target_local_only
                     )
-                target_verify = self._verify_executor.run_idle_participation(
+                self._verify_executor.run_idle_participation(
                     batch=batch, idle_layout=self._idle_verify_ragged_layout(batch)
                 )
-                expert_distribution_metrics = target_verify.expert_distribution_metrics
             return self._decode_idle_result(
                 on_publish=on_publish,
                 expert_distribution_metrics=expert_distribution_metrics,
@@ -2361,7 +2360,6 @@ class _WorkerMethods:
             new_seq_lens=accept.new_seq_lens,
         )
         return GenerationBatchResult(
-            expert_distribution_metrics=target_verify.expert_distribution_metrics,
             logits_output=logits_output,
             next_token_ids=accept.out_tokens.reshape(-1),
             accept_lens=accept.commit_lens,

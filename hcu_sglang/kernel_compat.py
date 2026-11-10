@@ -76,21 +76,20 @@ def around_assign_extend_cache_locs_func(
             device,
         )
 
-    from sgl_kernel.kvcacheio import hcu_assign_extend_cache_locs
-
     out_cache_loc = torch.empty(
-        (batch_size * draft_token_num,), dtype=torch.int64, device=device
+        (batch_size * draft_token_num,), dtype=req_to_token.dtype, device=device
     )
-    hcu_assign_extend_cache_locs(
-        req_pool_indices,
-        req_to_token,
-        start_offset,
-        end_offset,
-        out_cache_loc,
-        req_to_token.shape[1],
-        batch_size,
-    )
-    return out_cache_loc
+    if batch_size:
+        native.assign_extend_cache_locs[(batch_size,)](
+            req_pool_indices,
+            req_to_token,
+            start_offset,
+            end_offset,
+            out_cache_loc,
+            req_to_token.shape[1],
+            native.next_power_of_2(batch_size),
+        )
+    return out_cache_loc.to(torch.int64)
 
 
 def _dispatch_mhc(name: str, original: Callable[..., Any], *args: Any, **kwargs: Any):

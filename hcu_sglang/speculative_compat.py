@@ -106,6 +106,14 @@ def patch_broken_torchaudio_availability() -> None:
         transformers_utils.is_torchaudio_available = lambda: False
 
 
+def around_dflash_top_p_renorm_prob(original, probs, top_ps):
+    if not is_hcu() or probs.device.type != "cuda":
+        return original(probs, top_ps)
+    from sglang.kernels.ops.sampling.renorm_triton import top_p_renorm_probs_triton
+
+    return top_p_renorm_probs_triton(probs, top_ps)
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -163,5 +171,10 @@ def register_hooks() -> None:
         "sglang.srt.batch_overlap.two_batch_overlap."
         "TboForwardBatchPreparer.filter_batch",
         around_tbo_filter_batch,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.speculative.dflash_utils._dflash_top_p_renorm_prob",
+        around_dflash_top_p_renorm_prob,
         HookType.AROUND,
     )

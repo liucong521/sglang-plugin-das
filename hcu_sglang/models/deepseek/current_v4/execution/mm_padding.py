@@ -37,9 +37,6 @@ def pad_mm_tokens(input_ids: array, mm_inputs: MultimodalInputs) -> array:
 
         for i, item in enumerate(items):
             for offset in items[i].offsets:
-                input_ids_tensor[offset[0] : offset[1] + 1] = torch.as_tensor(
-                    item.padding_sequence(offset[1] - offset[0] + 1),
-                    dtype=input_ids_tensor.dtype,
-                )
+                input_ids_tensor[offset[0] : offset[1] + 1] = item.pad_value
 
     return padded_input_ids
